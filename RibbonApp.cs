@@ -8,59 +8,165 @@ using Autodesk.Revit.UI;
 namespace RetainingWallFormwork
 {
     /// <summary>
-    /// Al arrancar Revit anade a la pestana "ARBA" (panel "Muros de contencion", el mismo
-    /// que usa el add-in de armado) el boton "Metrar encofrado", que lanza
-    /// MetrarEncofradoCommand. El comando sigue disponible ademas en Complementos,
-    /// Herramientas externas. El icono se dibuja en codigo para no depender de imagenes.
+    /// Gestion compartida de la pestana "ARBA" y sus paneles (IA, Acero, Encofrado).
+    /// Asegura el mismo orden sin importar que add-in cargue primero.
     /// </summary>
-    public class RibbonApp : IExternalApplication
+    public static class ArbaRibbon
     {
         public const string TabName = "ARBA";
-        private const string PanelName = "Muros de contencion";
+        public const string PanelIaName = "IA";
+        public const string PanelAceroName = "Acero";
+        public const string PanelEncofradoName = "Encofrado";
 
-        public Result OnStartup(UIControlledApplication app)
+        private static readonly string[] OrderedPanels = { PanelIaName, PanelAceroName, PanelEncofradoName };
+
+        /// <summary>
+        /// Crea la pestana "ARBA" si no existe y los paneles "IA", "Acero" y "Encofrado"
+        /// siempre en este orden estricto. Cada panel nuevo inicia oculto (Visible = false).
+        /// </summary>
+        public static void Ensure(UIControlledApplication app)
         {
             try
             {
-                // la pestana puede existir ya si otro add-in la creo antes
-                try { app.CreateRibbonTab(TabName); } catch (Exception) { }
-
-                RibbonPanel panel = null;
-                foreach (RibbonPanel p in app.GetRibbonPanels(TabName))
-                    if (p.Name == PanelName) { panel = p; break; }
-                if (panel == null) panel = app.CreateRibbonPanel(TabName, PanelName);
-
-                string assembly = Assembly.GetExecutingAssembly().Location;
-                var data = new PushButtonData("MetrarEncofradoMuroContencion", "Metrar\nencofrado", assembly,
-                                              typeof(MetrarEncofradoCommand).FullName)
-                {
-                    ToolTip = "Metra el encofrado (m2) de muros de contencion y crea la tabla de planificacion",
-                    LongDescription = "Selecciona uno o varios muros y pulsa el boton. Se abre una ventana con cada cara " +
-                                      "del muro clasificada (pantalla, zapata, extremos, vanos), lo que toca (muros, losas, " +
-                                      "columnas) y lo que se descuenta segun las reglas constructivas. Al metrar se escriben " +
-                                      "los parametros ENC de cada elemento y se crea o actualiza la tabla. Si no hay nada " +
-                                      "seleccionado, el comando pide que elijas los muros.",
-                    LargeImage = Icon(32),
-                    Image = Icon(16)
-                };
-                panel.AddItem(data);
-                return Result.Succeeded;
+                app.CreateRibbonTab(TabName);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                TaskDialog.Show("ARBA", "No se pudo crear el boton de encofrado: " + ex.Message +
-                                "\nEl comando sigue disponible en Complementos > Herramientas externas.");
-                return Result.Failed;
+                // Ya creada por otro add-in
+            }
+
+            var existing = app.GetRibbonPanels(TabName);
+            foreach (string panelName in OrderedPanels)
+            {
+                bool exists = false;
+                if (existing != null)
+                {
+                    foreach (RibbonPanel p in existing)
+                    {
+                        if (string.Equals(p.Name, panelName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            exists = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!exists)
+                {
+                    RibbonPanel panel = app.CreateRibbonPanel(TabName, panelName);
+                    panel.Visible = false;
+                }
             }
         }
 
-        public Result OnShutdown(UIControlledApplication app) => Result.Succeeded;
+        /// <summary>
+        /// Obtiene el panel solicitado de la pestana ARBA. Si no existe, lo crea.
+        /// </summary>
+        public static RibbonPanel GetPanel(UIControlledApplication app, string panelName)
+        {
+            var existing = app.GetRibbonPanels(TabName);
+            if (existing != null)
+            {
+                foreach (RibbonPanel p in existing)
+                {
+                    if (string.Equals(p.Name, panelName, StringComparison.OrdinalIgnoreCase))
+                        return p;
+                }
+            }
+
+            RibbonPanel created = app.CreateRibbonPanel(TabName, panelName);
+            created.Visible = false;
+            return created;
+        }
 
         /// <summary>
-        /// Icono: seccion de un muro de contencion (zapata + pantalla) con los tableros de
-        /// encofrado en las dos caras de la pantalla y en los laterales de la zapata.
+        /// Busca un PulldownButton con el nombre dado en el panel. Si no existe lo crea con
+        /// su icono correspondiente y le anade el PushButton. Al anadir, pone el panel visible.
         /// </summary>
-        private static BitmapSource Icon(int size)
+        public static void AddToPulldown(UIControlledApplication app, string panelName, string pulldownName, PushButtonData data)
+        {
+            RibbonPanel panel = GetPanel(app, panelName);
+
+            PulldownButton pulldown = null;
+            var items = panel.GetItems();
+            if (items != null)
+            {
+                foreach (RibbonItem item in items)
+                {
+                    if (item is PulldownButton pb && string.Equals(pb.Name, pulldownName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        pulldown = pb;
+                        break;
+                    }
+                }
+            }
+
+            if (pulldown == null)
+            {
+                var pbData = new PulldownButtonData(pulldownName, pulldownName);
+                if (string.Equals(pulldownName, PanelAceroName, StringComparison.OrdinalIgnoreCase))
+                {
+                    pbData.ToolTip = "Herramientas de armado de acero";
+                    pbData.LargeImage = IconAcero(32);
+                    pbData.Image = IconAcero(16);
+                }
+                else if (string.Equals(pulldownName, PanelEncofradoName, StringComparison.OrdinalIgnoreCase))
+                {
+                    pbData.ToolTip = "Herramientas de metrado de encofrado";
+                    pbData.LargeImage = IconEncofrado(32);
+                    pbData.Image = IconEncofrado(16);
+                }
+                pulldown = panel.AddItem(pbData) as PulldownButton;
+            }
+
+            pulldown?.AddPushButton(data);
+            panel.Visible = true;
+        }
+
+        /// <summary>Icono para el desplegable y botones de Acero (seccion en L con estribos y barras).</summary>
+        public static BitmapSource IconAcero(int size)
+        {
+            double s = size / 32.0;
+            var visual = new DrawingVisual();
+            using (DrawingContext dc = visual.RenderOpen())
+            {
+                var concrete = new SolidColorBrush(Color.FromRgb(0xD9, 0xD9, 0xD9));
+                var edge = new Pen(new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55)), 1.2 * s);
+                var stirrup1 = new Pen(new SolidColorBrush(Color.FromRgb(0x1F, 0x7A, 0x7A)), 1.6 * s) { LineJoin = PenLineJoin.Round };
+                var stirrup2 = new Pen(new SolidColorBrush(Color.FromRgb(0xE0, 0x8A, 0x2E)), 1.6 * s) { LineJoin = PenLineJoin.Round };
+                var bar = new SolidColorBrush(Color.FromRgb(0x8B, 0x2E, 0x2E));
+
+                var outline = new StreamGeometry();
+                using (StreamGeometryContext g = outline.Open())
+                {
+                    g.BeginFigure(new Point(2 * s, 2 * s), true, true);
+                    g.LineTo(new Point(30 * s, 2 * s), true, false);
+                    g.LineTo(new Point(30 * s, 14 * s), true, false);
+                    g.LineTo(new Point(14 * s, 14 * s), true, false);
+                    g.LineTo(new Point(14 * s, 30 * s), true, false);
+                    g.LineTo(new Point(2 * s, 30 * s), true, false);
+                }
+                dc.DrawGeometry(concrete, edge, outline);
+
+                dc.DrawRectangle(null, stirrup1, new System.Windows.Rect(5 * s, 5 * s, 22 * s, 6 * s));
+                dc.DrawRectangle(null, stirrup2, new System.Windows.Rect(5 * s, 5 * s, 6 * s, 22 * s));
+
+                double rr = 1.7 * s;
+                foreach (Point p in new[]
+                {
+                    new Point(5 * s, 5 * s), new Point(27 * s, 5 * s), new Point(27 * s, 11 * s),
+                    new Point(11 * s, 11 * s), new Point(11 * s, 27 * s), new Point(5 * s, 27 * s), new Point(5 * s, 11 * s)
+                })
+                    dc.DrawEllipse(bar, null, p, rr, rr);
+            }
+            var bmp = new RenderTargetBitmap(size, size, 96, 96, PixelFormats.Pbgra32);
+            bmp.Render(visual);
+            bmp.Freeze();
+            return bmp;
+        }
+
+        /// <summary>Icono para el desplegable y botones de Encofrado (seccion con tableros de madera).</summary>
+        public static BitmapSource IconEncofrado(int size)
         {
             double s = size / 32.0;
             var visual = new DrawingVisual();
@@ -73,7 +179,6 @@ namespace RetainingWallFormwork
                     StartLineCap = PenLineCap.Flat, EndLineCap = PenLineCap.Flat
                 };
 
-                // hormigon: zapata y pantalla con talud en el trasdos (izquierda)
                 var outline = new StreamGeometry();
                 using (StreamGeometryContext g = outline.Open())
                 {
@@ -88,7 +193,6 @@ namespace RetainingWallFormwork
                 }
                 dc.DrawGeometry(concrete, edge, outline);
 
-                // tableros: trasdos (inclinado), intrados (vertical) y laterales de zapata
                 dc.DrawLine(board, new Point(11.6 * s, 3 * s), new Point(8.6 * s, 22.5 * s));
                 dc.DrawLine(board, new Point(19.5 * s, 3 * s), new Point(20.5 * s, 22.5 * s));
                 dc.DrawLine(board, new Point(1.6 * s, 23 * s), new Point(1.6 * s, 30 * s));
@@ -100,5 +204,45 @@ namespace RetainingWallFormwork
             bmp.Freeze();
             return bmp;
         }
+    }
+
+    /// <summary>
+    /// Entrada de la aplicacion de cinta para RetainingWallFormwork en Revit.
+    /// Anade el boton "Muro de contencion" al desplegable "Encofrado" del panel "Encofrado" en la pestana "ARBA".
+    /// </summary>
+    public class RibbonApp : IExternalApplication
+    {
+        public Result OnStartup(UIControlledApplication app)
+        {
+            try
+            {
+                ArbaRibbon.Ensure(app);
+
+                string assembly = Assembly.GetExecutingAssembly().Location;
+                var data = new PushButtonData("ARBA_Encofrado_Muro", "Muro de contencion", assembly,
+                                              typeof(MetrarEncofradoCommand).FullName)
+                {
+                    ToolTip = "Metra el encofrado (m2) de muros de contencion y crea la tabla de planificacion",
+                    LongDescription = "Selecciona uno o varios muros y pulsa el boton. Se abre una ventana con cada cara " +
+                                      "del muro clasificada (pantalla, zapata, extremos, vanos), lo que toca (muros, losas, " +
+                                      "columnas) y lo que se descuenta segun las reglas constructivas. Al metrar se escriben " +
+                                      "los parametros ENC de cada elemento y se crea o actualiza la tabla. Si no hay nada " +
+                                      "seleccionado, el comando pide que elijas los muros.",
+                    LargeImage = ArbaRibbon.IconEncofrado(32),
+                    Image = ArbaRibbon.IconEncofrado(16)
+                };
+
+                ArbaRibbon.AddToPulldown(app, ArbaRibbon.PanelEncofradoName, ArbaRibbon.PanelEncofradoName, data);
+                return Result.Succeeded;
+            }
+            catch (Exception ex)
+            {
+                TaskDialog.Show("ARBA", "No se pudo anadir el boton Encofrado a la cinta: " + ex.Message +
+                                "\nEl comando sigue disponible en Complementos > Herramientas externas.");
+                return Result.Failed;
+            }
+        }
+
+        public Result OnShutdown(UIControlledApplication app) => Result.Succeeded;
     }
 }
