@@ -80,6 +80,7 @@ namespace RetainingWallFormwork
             MinHeight = 600;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             FontSize = 12;
+            RevitTheme.Apply(this);
             Content = Build();
             _loading = false;
             Refresh();
@@ -133,7 +134,7 @@ namespace RetainingWallFormwork
             AddCol(_elements, "Total m2", "Total", 65, true);
             AddCol(_elements, "Etapas", "Etapas", 50, true);
             AddCol(_elements, "Diagnostico", "Diagnostico", 0);
-            _elements.RowStyle = ErrorRowStyle("IsError", Brushes.Firebrick);
+            _elements.RowStyle = ErrorRowStyle("IsError", RevitTheme.Error);
             _elements.SelectionChanged += (s, e) => ShowFaces();
             left.Children.Add(Boxed("Elementos seleccionados (m2 encofrados con las reglas actuales)", _elements, 0));
 
@@ -151,7 +152,7 @@ namespace RetainingWallFormwork
             AddCol(_faces, "Se encofra", "Encofra", 68, true);
             AddCol(_faces, "Contactos (que toca y que regla se aplica)", "Contactos", 0);
             AddCol(_faces, "Nota", "Nota", 260);
-            _faces.RowStyle = ErrorRowStyle("IsFormed", Brushes.Gray, invert: true);
+            _faces.RowStyle = ErrorRowStyle("IsFormed", RevitTheme.Muted, invert: true);
             Grid.SetRow(_faces, 2);
             left.Children.Add(_faces);
 
@@ -238,7 +239,7 @@ namespace RetainingWallFormwork
                                    "crean la primera vez con GUID fijos, asi la tabla sigue valiendo en las siguientes ejecuciones."));
             panel.Children.Add(Group("Salida", outp));
 
-            _message = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Firebrick, Margin = new Thickness(0, 6, 0, 0) };
+            _message = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = RevitTheme.Error, Margin = new Thickness(0, 6, 0, 0) };
             panel.Children.Add(_message);
 
             // --- pie: totales y botones ---
@@ -284,7 +285,6 @@ namespace RetainingWallFormwork
             HeadersVisibility = DataGridHeadersVisibility.Column,
             SelectionMode = DataGridSelectionMode.Single,
             GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
-            AlternatingRowBackground = new SolidColorBrush(Color.FromRgb(0xF4, 0xF4, 0xF4)),
             FontSize = 11.5
         };
 
@@ -330,7 +330,7 @@ namespace RetainingWallFormwork
             new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, top, 0, 2) };
 
         private static TextBlock Help(string text) =>
-            new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DimGray, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) };
+            new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = RevitTheme.Muted, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) };
 
         private static ComboBox Combo(string[] items, int selected)
         {
@@ -362,7 +362,7 @@ namespace RetainingWallFormwork
         {
             string t = (tb.Text ?? "").Trim().Replace(',', '.');
             bool ok = double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out v) && v >= min;
-            tb.Background = ok ? Brushes.White : new SolidColorBrush(Color.FromRgb(0xFF, 0xD6, 0xD6));
+            tb.Background = ok ? RevitTheme.Input : RevitTheme.Invalid;
             return ok;
         }
 
@@ -497,12 +497,12 @@ namespace RetainingWallFormwork
             try
             {
                 c.Save();
-                _message.Foreground = Brushes.DarkGreen;
+                _message.Foreground = RevitTheme.Ok;
                 _message.Text = "Guardado en " + AppConfig.ConfigPath();
             }
             catch (Exception ex)
             {
-                _message.Foreground = Brushes.Firebrick;
+                _message.Foreground = RevitTheme.Error;
                 _message.Text = "No se pudo guardar: " + ex.Message;
             }
         }
@@ -512,12 +512,12 @@ namespace RetainingWallFormwork
             try
             {
                 Clipboard.SetText(MetrarEncofradoCommand.Summary(Items, _cfg));
-                _message.Foreground = Brushes.DarkGreen;
+                _message.Foreground = RevitTheme.Ok;
                 _message.Text = "Resumen copiado al portapapeles.";
             }
             catch (Exception ex)
             {
-                _message.Foreground = Brushes.Firebrick;
+                _message.Foreground = RevitTheme.Error;
                 _message.Text = "No se pudo copiar: " + ex.Message;
             }
         }
